@@ -114,7 +114,7 @@ const PrintableView: React.FC<{ formData: IFormData; signatureDataUrl: string | 
 };
 
 
-const FormField: React.FC<{ label: string; name: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder?: string; type?: string; error?: string;}> = ({ label, name, value, onChange, placeholder, type = 'text', error }) => {
+const FormField: React.FC<{ label: string; name: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder?: string; type?: string; error?: string; required?: boolean; }> = ({ label, name, value, onChange, placeholder, type = 'text', error, required }) => {
     const inputRef = useRef<HTMLInputElement>(null);
 
     const handleIconClick = () => {
@@ -126,7 +126,10 @@ const FormField: React.FC<{ label: string; name: string; value: string; onChange
     return (
         <div className="flex flex-col">
             <div className="flex flex-row items-center gap-1">
-                <label htmlFor={name} className="w-36 font-semibold text-gray-700 flex-shrink-0">{label}:</label>
+                <label htmlFor={name} className="w-36 font-semibold text-gray-700 flex-shrink-0">
+                    {label}
+                    {required && <span className="text-red-500 ml-1">*</span>}
+                </label>
                  <div className="relative flex-1 w-full">
                     <input
                         ref={inputRef}
@@ -152,24 +155,30 @@ const FormField: React.FC<{ label: string; name: string; value: string; onChange
     );
 };
 
-const RadioGroup: React.FC<{label: string, name: string, options: {value: string, label: string}[], selectedValue: string, onChange: (e: React.ChangeEvent<HTMLInputElement>) => void}> = ({ label, name, options, selectedValue, onChange }) => (
-    <div className="flex flex-row items-center gap-1">
-        <p className="w-36 font-semibold text-gray-700 flex-shrink-0">{label}:</p>
-        <div className="flex-1 flex flex-wrap gap-x-2 gap-y-1">
-            {options.map(opt => (
-                <label key={opt.value} className="flex items-center space-x-1.5 cursor-pointer">
-                    <input
-                        type="radio"
-                        name={name}
-                        value={opt.value}
-                        checked={selectedValue === opt.value}
-                        onChange={onChange}
-                        className="form-radio h-3.5 w-3.5 text-blue-600 transition duration-150 ease-in-out"
-                    />
-                    <span className="text-gray-900">{opt.label}</span>
-                </label>
-            ))}
+const RadioGroup: React.FC<{label: string, name: string, options: {value: string, label: string}[], selectedValue: string, onChange: (e: React.ChangeEvent<HTMLInputElement>) => void, error?: string, required?: boolean}> = ({ label, name, options, selectedValue, onChange, error, required }) => (
+    <div className="flex flex-col">
+        <div className="flex flex-row items-center gap-1">
+            <p className="w-36 font-semibold text-gray-700 flex-shrink-0">
+                {label}
+                {required && <span className="text-red-500 ml-1">*</span>}
+            </p>
+            <div className={`flex-1 flex flex-wrap gap-x-2 gap-y-1 p-1 rounded-md ${error ? 'outline outline-2 outline-offset-1 outline-red-500' : ''}`}>
+                {options.map(opt => (
+                    <label key={opt.value} className="flex items-center space-x-1.5 cursor-pointer">
+                        <input
+                            type="radio"
+                            name={name}
+                            value={opt.value}
+                            checked={selectedValue === opt.value}
+                            onChange={onChange}
+                            className="form-radio h-3.5 w-3.5 text-blue-600 transition duration-150 ease-in-out"
+                        />
+                        <span className="text-gray-900">{opt.label}</span>
+                    </label>
+                ))}
+            </div>
         </div>
+        {error && <p className="text-red-500 text-xs mt-1 ml-36 pl-2">{error}</p>}
     </div>
 );
 
@@ -178,7 +187,9 @@ const App: React.FC = () => {
   const [formData, setFormData] = useState<IFormData>(initialFormData);
   const [errors, setErrors] = useState<Partial<Record<keyof IFormData, string>>>({});
   const [isSigned, setIsSigned] = useState(false);
-  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [isFormCompleteAndValid, setIsFormCompleteAndValid] = useState(false);
   const [signatureMode, setSignatureMode] = useState<'draw' | 'upload'>('draw');
   const [uploadedSignature, setUploadedSignature] = useState<string | null>(null);
   const [printableSignature, setPrintableSignature] = useState<string | null>(null);
@@ -187,6 +198,15 @@ const App: React.FC = () => {
   const isDrawing = useRef(false);
   
   const validateField = useCallback((name: keyof IFormData, value: string): string => {
+    const requiredFields: Array<keyof IFormData> = [
+        'firstName', 'lastName', 'dob', 'gender', 'address', 'postalCode', 'city', 'phone', 'email',
+        'sepaGender', 'sepaFirstName', 'sepaLastName', 'sepaAddress', 'sepaPostalCode', 'sepaCity', 'iban'
+    ];
+      
+    if (requiredFields.includes(name) && !value.trim()) {
+      return 'This field is required.';
+    }
+
     switch (name) {
         case 'email':
             if (value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
@@ -221,8 +241,11 @@ const App: React.FC = () => {
     
     setFormData(prev => ({ ...prev, [name]: formattedValue }));
 
-    const error = validateField(name, formattedValue);
-    setErrors(prev => ({ ...prev, [name]: error }));
+    // Validate on change to clear errors
+    if (errors[name]) {
+        const error = validateField(name, formattedValue);
+        setErrors(prev => ({ ...prev, [name]: error }));
+    }
   };
 
   const isCanvasBlank = useCallback((): boolean => {
@@ -331,6 +354,43 @@ const App: React.FC = () => {
     }
   };
 
+  const validateForm = useCallback((): boolean => {
+    const newErrors: Partial<Record<keyof IFormData, string>> = {};
+    const fieldsToValidate: Array<keyof IFormData> = [
+        'firstName', 'lastName', 'dob', 'gender', 'address', 'postalCode', 'city', 'phone', 'email',
+        'sepaGender', 'sepaFirstName', 'sepaLastName', 'sepaAddress', 'sepaPostalCode', 'sepaCity', 'iban'
+    ];
+
+    for (const key of fieldsToValidate) {
+        const error = validateField(key, formData[key]);
+        if (error) {
+            newErrors[key] = error;
+        }
+    }
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  }, [formData, validateField]);
+
+  // Real-time check for button state without setting errors for the user
+  const checkFormValidity = useCallback(() => {
+    const fieldsToValidate: Array<keyof IFormData> = [
+        'firstName', 'lastName', 'dob', 'gender', 'address', 'postalCode', 'city', 'phone', 'email',
+        'sepaGender', 'sepaFirstName', 'sepaLastName', 'sepaAddress', 'sepaPostalCode', 'sepaCity', 'iban'
+    ];
+    for (const key of fieldsToValidate) {
+        if (validateField(key, formData[key])) {
+            return false; // Found an error, form is not valid
+        }
+    }
+    return true; // No errors found
+  }, [formData, validateField]);
+
+  useEffect(() => {
+    setIsFormCompleteAndValid(checkFormValidity());
+  }, [formData, checkFormValidity]);
+
+
   const handleDownloadPdf = async () => {
     if (typeof jspdf === 'undefined' || typeof html2canvas === 'undefined') {
       console.error("PDF generation libraries not loaded.");
@@ -338,9 +398,14 @@ const App: React.FC = () => {
       return;
     }
       
-    const formIsValid = (Object.keys(formData) as Array<keyof IFormData>).every(key => !validateField(key, formData[key]));
-    if (!formIsValid) {
-        alert("Please correct the errors in the form before proceeding.");
+    // 1. Run full validation to display all errors to the user.
+    if (!validateForm()) {
+        setTimeout(() => {
+            const firstErrorField = document.querySelector('.border-red-500, .outline-red-500');
+            if (firstErrorField) {
+                firstErrorField.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }, 100);
         return;
     }
     
@@ -355,9 +420,44 @@ const App: React.FC = () => {
       alert("Please provide a signature before generating the PDF.");
       return;
     }
+
+    setIsProcessing(true);
     
+    // 2. Save data to the backend
+    try {
+        setStatusMessage('Saving application to database...');
+        const response = await fetch('https://hamburgkannadamitraru.com/api/submit-form.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ ...formData, signatureDataUrl }),
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || 'Failed to save form data.');
+        }
+
+        // Data saved successfully, now generate PDF
+        setStatusMessage('Data saved successfully! Generating PDF...');
+
+    } catch (error) {
+        console.error("Submission Error:", error);
+        let errorMessage = 'An unknown error occurred while saving the application.';
+        if (error instanceof TypeError && error.message === 'Failed to fetch') {
+            errorMessage = 'Connection to the server failed. This is likely a CORS (Cross-Origin) issue. Please ensure the backend server is correctly configured to accept requests from this website.';
+        } else if (error instanceof Error) {
+            errorMessage = error.message;
+        }
+        alert(`Could not save your application. Please try again.\n\nError: ${errorMessage}`);
+        setIsProcessing(false);
+        setStatusMessage('');
+        return; // Stop the process if saving fails
+    }
+    
+    // 3. Generate PDF
     setPrintableSignature(signatureDataUrl);
-    setIsGeneratingPdf(true);
     
     // Allow React to render the printable view before capturing
     setTimeout(async () => {
@@ -366,7 +466,7 @@ const App: React.FC = () => {
 
         if (!formContent || !termsContent) {
             console.error("Printable content not found.");
-            setIsGeneratingPdf(false);
+            setIsProcessing(false);
             setPrintableSignature(null);
             return;
         }
@@ -418,7 +518,8 @@ const App: React.FC = () => {
           console.error("Error generating PDF:", error);
           alert("Failed to generate PDF. Please try again.");
         } finally {
-          setIsGeneratingPdf(false);
+          setIsProcessing(false);
+          setStatusMessage('');
           setPrintableSignature(null);
         }
     }, 100);
@@ -426,7 +527,7 @@ const App: React.FC = () => {
 
   return (
     <>
-      {isGeneratingPdf && <PrintableView formData={formData} signatureDataUrl={printableSignature} />}
+      {isProcessing && <PrintableView formData={formData} signatureDataUrl={printableSignature} />}
       <div className="min-h-screen bg-gray-100 p-4">
         <div className="max-w-4xl mx-auto text-sm">
           <div id="pdf-content-area">
@@ -437,24 +538,24 @@ const App: React.FC = () => {
                   <p className="text-md text-blue-600 font-semibold">EINTRITTSFORMULAR / Membership Form</p>
                 </div>
                 {/* <img src="https://picsum.photos/id/111/80/80" alt="Logo" className="w-20 h-20 rounded-full object-cover mt-4 sm:mt-0" /> */}
-                <img src={logoHKF} alt="Logo" className="w-25 h-20 rounded-full object-cover mt-4 sm:mt-0" />
+                <img src={logoHKF} alt="Logo" className="w-20 h-20 rounded-full object-cover mt-4 sm:mt-0" />
               </header>
 
               <main className="pt-3 space-y-3">
                 {/* Personal Details Section */}
                 <section className="space-y-1.5 p-3 border border-gray-200 rounded-lg">
                     <h3 className="text-lg font-bold text-gray-700 border-b pb-1 mb-1.5">Personal Details (Bitte in Druckbuchstaben ausfüllen)</h3>
-                    <FormField label="First Name (Vorname)" name="firstName" value={formData.firstName} onChange={handleInputChange} />
-                    <FormField label="Last Name (Nachname)" name="lastName" value={formData.lastName} onChange={handleInputChange} />
-                    <FormField label="Date of Birth (Geburtsdatum)" name="dob" type="date" value={formData.dob} onChange={handleInputChange} />
-                    <RadioGroup label="Gender (Geschlecht)" name="gender" selectedValue={formData.gender} onChange={handleInputChange} options={[{value: 'male', label: 'Männlich (Male)'}, {value: 'female', label: 'Weiblich (Female)'}]} />
-                    <FormField label="Address (Adresse)" name="address" value={formData.address} onChange={handleInputChange} />
+                    <FormField label="First Name (Vorname)" name="firstName" value={formData.firstName} onChange={handleInputChange} error={errors.firstName} required />
+                    <FormField label="Last Name (Nachname)" name="lastName" value={formData.lastName} onChange={handleInputChange} error={errors.lastName} required />
+                    <FormField label="Date of Birth (Geburtsdatum)" name="dob" type="date" value={formData.dob} onChange={handleInputChange} error={errors.dob} required />
+                    <RadioGroup label="Gender (Geschlecht)" name="gender" selectedValue={formData.gender} onChange={handleInputChange} options={[{value: 'male', label: 'Männlich (Male)'}, {value: 'female', label: 'Weiblich (Female)'}]} error={errors.gender} required />
+                    <FormField label="Address (Adresse)" name="address" value={formData.address} onChange={handleInputChange} error={errors.address} required />
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-2 gap-y-1.5">
-                      <FormField label="Postal Code" name="postalCode" value={formData.postalCode} onChange={handleInputChange} error={errors.postalCode} />
-                      <FormField label="City (Ort)" name="city" value={formData.city} onChange={handleInputChange} />
+                      <FormField label="Postal Code" name="postalCode" value={formData.postalCode} onChange={handleInputChange} error={errors.postalCode} required />
+                      <FormField label="City (Ort)" name="city" value={formData.city} onChange={handleInputChange} error={errors.city} required />
                     </div>
-                    <FormField label="Phone (Tel./Handy)" name="phone" value={formData.phone} onChange={handleInputChange} type="tel" />
-                    <FormField label="E-Mail" name="email" value={formData.email} onChange={handleInputChange} type="email" error={errors.email} />
+                    <FormField label="Phone (Tel./Handy)" name="phone" value={formData.phone} onChange={handleInputChange} type="tel" error={errors.phone} required />
+                    <FormField label="E-Mail" name="email" value={formData.email} onChange={handleInputChange} type="email" error={errors.email} required />
                 </section>
 
                  {/* SEPA Mandate Section */}
@@ -462,21 +563,21 @@ const App: React.FC = () => {
                     <h3 className="text-xl font-bold text-center text-gray-800">SEPA-Lastschriftmandat (SEPA Direct Debit Mandate)</h3>
                     <p className="text-xs text-gray-600">Hiermit ermächtige ich den Hamburg Kannada Freunde e.V., den Mitgliedsbeitrag von meinem unten angegebenen Konto per Lastschrift einzuziehen. / I hereby authorize Hamburg Kannada Freunde e.V. to collect the membership fee from my account specified below via direct debit.</p>
                     <div className="space-y-1.5">
-                        <RadioGroup label="Gender" name="sepaGender" selectedValue={formData.sepaGender} onChange={handleInputChange} options={[{value: 'male', label: 'Male'}, {value: 'female', label: 'Female'}, {value: 'diverse', label: 'Diverse'}, {value: 'none', label: 'No Answer'}, {value: 'institution', label: 'Institution'}]} />
-                        <FormField label="First Name (Vorname)" name="sepaFirstName" value={formData.sepaFirstName} onChange={handleInputChange} />
-                        <FormField label="Last Name (Nachname)" name="sepaLastName" value={formData.sepaLastName} onChange={handleInputChange} />
-                        <FormField label="Address (Adresse)" name="sepaAddress" value={formData.sepaAddress} onChange={handleInputChange} />
+                        <RadioGroup label="Gender" name="sepaGender" selectedValue={formData.sepaGender} onChange={handleInputChange} options={[{value: 'male', label: 'Male'}, {value: 'female', 'label': 'Female'}, {value: 'diverse', label: 'Diverse'}, {value: 'none', label: 'No Answer'}, {value: 'institution', label: 'Institution'}]} error={errors.sepaGender} required />
+                        <FormField label="First Name (Vorname)" name="sepaFirstName" value={formData.sepaFirstName} onChange={handleInputChange} error={errors.sepaFirstName} required />
+                        <FormField label="Last Name (Nachname)" name="sepaLastName" value={formData.sepaLastName} onChange={handleInputChange} error={errors.sepaLastName} required />
+                        <FormField label="Address (Adresse)" name="sepaAddress" value={formData.sepaAddress} onChange={handleInputChange} error={errors.sepaAddress} required />
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-2 gap-y-1.5">
-                            <FormField label="Postal Code" name="sepaPostalCode" value={formData.sepaPostalCode} onChange={handleInputChange} error={errors.sepaPostalCode} />
-                            <FormField label="City (Ort)" name="sepaCity" value={formData.sepaCity} onChange={handleInputChange} />
+                            <FormField label="Postal Code" name="sepaPostalCode" value={formData.sepaPostalCode} onChange={handleInputChange} error={errors.sepaPostalCode} required />
+                            <FormField label="City (Ort)" name="sepaCity" value={formData.sepaCity} onChange={handleInputChange} error={errors.sepaCity} required />
                         </div>
-                        <FormField label="IBAN" name="iban" value={formData.iban} onChange={handleInputChange} placeholder="DE00 0000 0000 0000 0000 00" error={errors.iban} />
+                        <FormField label="IBAN" name="iban" value={formData.iban} onChange={handleInputChange} placeholder="DE00 0000 0000 0000 0000 00" error={errors.iban} required />
                     </div>
                 </section>
                 
                 {/* Signature Section */}
                 <section className="space-y-1 p-3 border border-gray-200 rounded-lg">
-                    <h3 className="text-lg font-bold text-gray-700 border-b pb-1 mb-1.5">Signature (Unterschrift)</h3>
+                    <h3 className="text-lg font-bold text-gray-700 border-b pb-1 mb-1.5">Signature (Unterschrift)<span className="text-red-500 ml-1">*</span></h3>
                     <div className="flex flex-col sm:flex-row sm:items-start sm:gap-1">
                         <div className="w-full sm:w-1/2 flex-1 flex flex-col">
                             <label className="font-semibold text-gray-700 mb-2">Entry Date (Eintrittsdatum):</label>
@@ -519,22 +620,29 @@ const App: React.FC = () => {
           <div className="mt-4 flex flex-col sm:flex-row justify-center items-center gap-4">
               <button
                   onClick={handleDownloadPdf}
-                  disabled={isGeneratingPdf || !isSigned}
+                  disabled={isProcessing || !isSigned || !isFormCompleteAndValid}
                   className="w-full sm:w-auto px-6 py-2 bg-blue-600 text-white font-bold rounded-lg shadow-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-300 transform hover:scale-105 flex items-center justify-center gap-2"
               >
-                  {isGeneratingPdf ? (
+                  {isProcessing ? (
                       <>
                           <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                           </svg>
-                          Generating PDF...
+                          {statusMessage || 'Processing...'}
                       </>
                   ) : (
-                      'Generate and Download PDF'
+                      'Save Application & Download PDF'
                   )}
               </button>
-               {!isSigned && <p className="text-red-500 text-sm font-semibold">Signature is required to generate PDF.</p>}
+              {!isProcessing && (!isFormCompleteAndValid || !isSigned) && (
+                  <p className="text-red-500 text-sm font-semibold">
+                      {!isFormCompleteAndValid
+                          ? "Please complete all required fields to enable."
+                          : "A signature is required to enable."
+                      }
+                  </p>
+              )}
           </div>
           
         <footer className="mt-6 pt-4 border-t border-gray-200 text-sm text-gray-700">
