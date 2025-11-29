@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { IFormData } from './types';
 import TermsAndConditions from './components/TermsAndConditions';
 import logoHKF from './logo/HKF-W.png';
+//  const logoHKF = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%233B82F6'/%3E%3Ctext x='50' y='62' font-size='40' fill='white' text-anchor='middle' font-family='sans-serif' font-weight='bold'%3EHKF%3C/text%3E%3C/svg%3E";
 
 // Declare global variables from CDN scripts for TypeScript
 declare const jspdf: any;
@@ -114,14 +115,40 @@ const PrintableView: React.FC<{ formData: IFormData; signatureDataUrl: string | 
 };
 
 
-const FormField: React.FC<{ label: string; name: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder?: string; type?: string; error?: string; required?: boolean; }> = ({ label, name, value, onChange, placeholder, type = 'text', error, required }) => {
+const FormField: React.FC<{ 
+    label: string; 
+    name: string; 
+    value: string; 
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; 
+    onBlur?: (e: React.FocusEvent<HTMLInputElement>) => void;
+    placeholder?: string; 
+    type?: string; 
+    error?: string; 
+    required?: boolean; 
+}> = ({ label, name, value, onChange, onBlur, placeholder, type = 'text', error, required }) => {
     const inputRef = useRef<HTMLInputElement>(null);
+    const [touched, setTouched] = useState(false);
 
     const handleIconClick = () => {
         if (inputRef.current?.showPicker) {
             inputRef.current.showPicker();
         }
     };
+    
+    const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+        setTouched(true);
+        if (onBlur) onBlur(e);
+    };
+
+    const isSuccess = touched && value && !error;
+    const isError = !!error;
+
+    // Determine border color: Red if error, Green if touched and valid (and has value), Gray otherwise
+    const borderColor = isError 
+        ? 'border-red-500 focus:border-red-500 focus:ring-red-200' 
+        : isSuccess
+            ? 'border-green-500 focus:border-green-500 focus:ring-green-200' 
+            : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200';
 
     return (
         <div className="flex flex-col">
@@ -138,16 +165,33 @@ const FormField: React.FC<{ label: string; name: string; value: string; onChange
                         type={type}
                         value={value}
                         onChange={onChange}
+                        onBlur={handleBlur}
                         placeholder={placeholder || label}
-                        className={`w-full p-1.5 text-sm border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition bg-white text-black ${error ? 'border-red-500' : 'border-gray-300'} ${type === 'date' ? 'pr-2' : ''}`}
+                        className={`w-full p-1.5 text-sm border rounded-md focus:ring-2 transition bg-white text-black ${borderColor} ${type === 'date' || isSuccess || isError ? 'pr-8' : ''}`}
                     />
-                    {type === 'date' && (
+                    
+                    {/* Date Picker Icon */}
+                    {type === 'date' && !isError && !isSuccess && (
                         <div onClick={handleIconClick} className="absolute inset-y-0 right-0 flex items-center pr-2 cursor-pointer">
                              <svg className="h-5 w-5 text-gray-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                <path fillRule="evenodd" d="M5.75 2a.75.75 0 01.75.75V4h7V2.75a.75.75 0 011.5 0V4h.25A2.75 2.75 0 0118 6.75v8.5A2.75 2.75 0 0115.25 18H4.75A2.75 2.75 0 012 15.25v-8.5A2.75 2.75 0 014.75 4H5V2.75A.75.75 0 015.75 2zM4.5 8.5a.5.5 0 000 1h11a.5.5 0 000-1h-11z" clipRule="evenodd" />
                              </svg>
                         </div>
                     )}
+                    
+                    {/* Validation Icons */}
+                     <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
+                        {isError && (
+                             <svg className="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                        )}
+                        {isSuccess && (
+                            <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                        )}
+                    </div>
                 </div>
             </div>
             {error && <p className="text-red-500 text-xs mt-1 ml-36 pl-2">{error}</p>}
@@ -241,11 +285,18 @@ const App: React.FC = () => {
     
     setFormData(prev => ({ ...prev, [name]: formattedValue }));
 
-    // Validate on change to clear errors
+    // Validate on change to clear errors if they exist
     if (errors[name]) {
         const error = validateField(name, formattedValue);
         setErrors(prev => ({ ...prev, [name]: error }));
     }
+  };
+
+  // New function to handle blur events for validation
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    const { name, value } = e.target as { name: keyof IFormData; value: string };
+    const error = validateField(name, value);
+    setErrors(prev => ({ ...prev, [name]: error }));
   };
 
   const isCanvasBlank = useCallback((): boolean => {
@@ -400,12 +451,14 @@ const App: React.FC = () => {
       
     // 1. Run full validation to display all errors to the user.
     if (!validateForm()) {
+        setStatusMessage("Please correct the errors highlighted.");
         setTimeout(() => {
             const firstErrorField = document.querySelector('.border-red-500, .outline-red-500');
             if (firstErrorField) {
                 firstErrorField.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
         }, 100);
+        setTimeout(() => setStatusMessage(''), 3000);
         return;
     }
     
@@ -423,20 +476,56 @@ const App: React.FC = () => {
 
     setIsProcessing(true);
     
+    // Prepare data for submission (sanitize IBAN)
+    const submissionData = {
+        ...formData,
+        iban: formData.iban ? formData.iban.replace(/\s+/g, '') : '',
+        signatureDataUrl
+    };
+
+    const apiUrl = 'https://hamburgkannadamitraru.com/api/submit-form.php';
+
     // 2. Save data to the backend
     try {
         setStatusMessage('Saving application to database...');
-        const response = await fetch('https://hamburgkannadamitraru.com/api/submit-form.php', {
+        console.log('Sending data to:', apiUrl);
+        
+        const response = await fetch(apiUrl, {
             method: 'POST',
+            mode: 'cors', // Explicitly request CORS
             headers: {
                 'Content-Type': 'application/json',
+                'Accept': 'application/json'
             },
-            body: JSON.stringify({ ...formData, signatureDataUrl }),
+            body: JSON.stringify(submissionData),
         });
 
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.message || 'Failed to save form data.');
+        // 3. Robust Response Handling
+        let responseText = await response.text();
+        responseText = responseText.trim(); // Remove whitespace/BOM
+        console.log('Raw Server Response:', responseText);
+
+        try {
+            // Try to parse JSON response
+            const jsonResponse = JSON.parse(responseText);
+            if (!response.ok || (jsonResponse.status && jsonResponse.status !== 'success')) {
+                throw new Error(jsonResponse.message || 'Failed to save form data.');
+            }
+        } catch (e) {
+            // If parsing fails or response is not OK
+            if (e instanceof SyntaxError) {
+                // Strip HTML tags to show a readable error message
+                const cleanText = responseText.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                const shortText = cleanText.substring(0, 300);
+                
+                // Check if it looks like an HTML page
+                if (responseText.toLowerCase().startsWith('<!doctype html') || responseText.toLowerCase().includes('<html')) {
+                    throw new Error(`Server returned a webpage instead of a JSON response. The API URL might be wrong or the server is showing an error page.\n\nServer Message: "${shortText}..."`);
+                }
+                
+                throw new Error(`Server returned an invalid response (not JSON). Please check the server logs.\n\nResponse snippet: "${shortText}"`);
+            }
+            throw e; 
         }
 
         // Data saved successfully, now generate PDF
@@ -445,18 +534,20 @@ const App: React.FC = () => {
     } catch (error) {
         console.error("Submission Error:", error);
         let errorMessage = 'An unknown error occurred while saving the application.';
-        if (error instanceof TypeError && error.message === 'Failed to fetch') {
-            errorMessage = 'Connection to the server failed. This is likely a CORS (Cross-Origin) issue. Please ensure the backend server is correctly configured to accept requests from this website.';
+        
+        if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+            errorMessage = 'Connection failed. This is likely a CORS issue (your PHP backend is blocking the connection from Vercel) or the API URL is incorrect. Please check your server headers.';
         } else if (error instanceof Error) {
             errorMessage = error.message;
         }
-        alert(`Could not save your application. Please try again.\n\nError: ${errorMessage}`);
+        
+        alert(`Could not save your application.\n\n${errorMessage}`);
         setIsProcessing(false);
         setStatusMessage('');
         return; // Stop the process if saving fails
     }
     
-    // 3. Generate PDF
+    // 4. Generate PDF
     setPrintableSignature(signatureDataUrl);
     
     // Allow React to render the printable view before capturing
@@ -545,17 +636,17 @@ const App: React.FC = () => {
                 {/* Personal Details Section */}
                 <section className="space-y-1.5 p-3 border border-gray-200 rounded-lg">
                     <h3 className="text-lg font-bold text-gray-700 border-b pb-1 mb-1.5">Personal Details (Bitte in Druckbuchstaben ausfüllen)</h3>
-                    <FormField label="First Name (Vorname)" name="firstName" value={formData.firstName} onChange={handleInputChange} error={errors.firstName} required />
-                    <FormField label="Last Name (Nachname)" name="lastName" value={formData.lastName} onChange={handleInputChange} error={errors.lastName} required />
-                    <FormField label="Date of Birth (Geburtsdatum)" name="dob" type="date" value={formData.dob} onChange={handleInputChange} error={errors.dob} required />
+                    <FormField label="First Name (Vorname)" name="firstName" value={formData.firstName} onChange={handleInputChange} onBlur={handleBlur} error={errors.firstName} required />
+                    <FormField label="Last Name (Nachname)" name="lastName" value={formData.lastName} onChange={handleInputChange} onBlur={handleBlur} error={errors.lastName} required />
+                    <FormField label="Date of Birth (Geburtsdatum)" name="dob" type="date" value={formData.dob} onChange={handleInputChange} onBlur={handleBlur} error={errors.dob} required />
                     <RadioGroup label="Gender (Geschlecht)" name="gender" selectedValue={formData.gender} onChange={handleInputChange} options={[{value: 'male', label: 'Männlich (Male)'}, {value: 'female', label: 'Weiblich (Female)'}]} error={errors.gender} required />
-                    <FormField label="Address (Adresse)" name="address" value={formData.address} onChange={handleInputChange} error={errors.address} required />
+                    <FormField label="Address (Adresse)" name="address" value={formData.address} onChange={handleInputChange} onBlur={handleBlur} error={errors.address} required />
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-2 gap-y-1.5">
-                      <FormField label="Postal Code" name="postalCode" value={formData.postalCode} onChange={handleInputChange} error={errors.postalCode} required />
-                      <FormField label="City (Ort)" name="city" value={formData.city} onChange={handleInputChange} error={errors.city} required />
+                      <FormField label="Postal Code" name="postalCode" value={formData.postalCode} onChange={handleInputChange} onBlur={handleBlur} error={errors.postalCode} required />
+                      <FormField label="City (Ort)" name="city" value={formData.city} onChange={handleInputChange} onBlur={handleBlur} error={errors.city} required />
                     </div>
-                    <FormField label="Phone (Tel./Handy)" name="phone" value={formData.phone} onChange={handleInputChange} type="tel" error={errors.phone} required />
-                    <FormField label="E-Mail" name="email" value={formData.email} onChange={handleInputChange} type="email" error={errors.email} required />
+                    <FormField label="Phone (Tel./Handy)" name="phone" value={formData.phone} onChange={handleInputChange} onBlur={handleBlur} type="tel" error={errors.phone} required />
+                    <FormField label="E-Mail" name="email" value={formData.email} onChange={handleInputChange} onBlur={handleBlur} type="email" error={errors.email} required />
                 </section>
 
                  {/* SEPA Mandate Section */}
@@ -564,14 +655,14 @@ const App: React.FC = () => {
                     <p className="text-xs text-gray-600">Hiermit ermächtige ich den Hamburg Kannada Freunde e.V., den Mitgliedsbeitrag von meinem unten angegebenen Konto per Lastschrift einzuziehen. / I hereby authorize Hamburg Kannada Freunde e.V. to collect the membership fee from my account specified below via direct debit.</p>
                     <div className="space-y-1.5">
                         <RadioGroup label="Gender" name="sepaGender" selectedValue={formData.sepaGender} onChange={handleInputChange} options={[{value: 'male', label: 'Male'}, {value: 'female', 'label': 'Female'}, {value: 'diverse', label: 'Diverse'}, {value: 'none', label: 'No Answer'}, {value: 'institution', label: 'Institution'}]} error={errors.sepaGender} required />
-                        <FormField label="First Name (Vorname)" name="sepaFirstName" value={formData.sepaFirstName} onChange={handleInputChange} error={errors.sepaFirstName} required />
-                        <FormField label="Last Name (Nachname)" name="sepaLastName" value={formData.sepaLastName} onChange={handleInputChange} error={errors.sepaLastName} required />
-                        <FormField label="Address (Adresse)" name="sepaAddress" value={formData.sepaAddress} onChange={handleInputChange} error={errors.sepaAddress} required />
+                        <FormField label="First Name (Vorname)" name="sepaFirstName" value={formData.sepaFirstName} onChange={handleInputChange} onBlur={handleBlur} error={errors.sepaFirstName} required />
+                        <FormField label="Last Name (Nachname)" name="sepaLastName" value={formData.sepaLastName} onChange={handleInputChange} onBlur={handleBlur} error={errors.sepaLastName} required />
+                        <FormField label="Address (Adresse)" name="sepaAddress" value={formData.sepaAddress} onChange={handleInputChange} onBlur={handleBlur} error={errors.sepaAddress} required />
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-2 gap-y-1.5">
-                            <FormField label="Postal Code" name="sepaPostalCode" value={formData.sepaPostalCode} onChange={handleInputChange} error={errors.sepaPostalCode} required />
-                            <FormField label="City (Ort)" name="sepaCity" value={formData.sepaCity} onChange={handleInputChange} error={errors.sepaCity} required />
+                            <FormField label="Postal Code" name="sepaPostalCode" value={formData.sepaPostalCode} onChange={handleInputChange} onBlur={handleBlur} error={errors.sepaPostalCode} required />
+                            <FormField label="City (Ort)" name="sepaCity" value={formData.sepaCity} onChange={handleInputChange} onBlur={handleBlur} error={errors.sepaCity} required />
                         </div>
-                        <FormField label="IBAN" name="iban" value={formData.iban} onChange={handleInputChange} placeholder="DE00 0000 0000 0000 0000 00" error={errors.iban} required />
+                        <FormField label="IBAN" name="iban" value={formData.iban} onChange={handleInputChange} onBlur={handleBlur} placeholder="DE00 0000 0000 0000 0000 00" error={errors.iban} required />
                     </div>
                 </section>
                 
