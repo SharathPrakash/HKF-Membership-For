@@ -10,6 +10,7 @@ export interface IFormData {
   city: string;
   phone: string;
   email: string;
+  isKannadaShaaleStudent: string;
 
   // Membership
   entryDate: string;
