@@ -4,6 +4,7 @@ import type { IFormData } from './types';
 import TermsAndConditions from './components/TermsAndConditions';
 import { PrintableView } from './components/PrintableView';
 import AdminDashboard from './AdminDashboard';
+
 import logoHKF from './logo/HKF-W.png';
 // const logoHKF = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%233B82F6'/%3E%3Ctext x='50' y='62' font-size='40' fill='white' text-anchor='middle' font-family='sans-serif' font-weight='bold'%3EHKF%3C/text%3E%3C/svg%3E";
 
@@ -643,11 +644,8 @@ const MembershipForm: React.FC = () => {
                     </address>
                 </div>
             </div>
-            {/* <div className="max-w-4xl mx-auto mt-8 text-center text-xs text-gray-300">
+            <div className="max-w-4xl mx-auto mt-8 text-center text-xs text-gray-300">
                 © {new Date().getFullYear()} Hamburg Kannada Freunde e.V. | <a href="#/admin" className="hover:text-blue-400 transition">Admin Dashboard</a>
-            </div> */}
-            <div className="max-w-4xl mx-auto mt-4 text-center text-xs text-gray-400">
-                © {new Date().getFullYear()} Hamburg Kannada Freunde e.V.
             </div>
         </footer>
         {showSuccessPopup && (
